@@ -1,0 +1,354 @@
+// MedScript India — Phase 1 data model.
+// Mirrors Section 2.3.1 of the architecture spec. PostgreSQL with JSONB columns.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  SUPER_ADMIN
+  DOCTOR
+  PATIENT
+  LAB_TECHNICIAN
+  RADIOLOGIST
+}
+
+enum KycStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum DrugSchedule {
+  H
+  H1
+  X
+  OTC
+}
+
+enum PrescriptionStatus {
+  DRAFT
+  SIGNED
+  DELIVERED
+  CANCELLED
+}
+
+enum ReportType {
+  LAB
+  RADIOLOGY
+  PRESCRIPTION
+}
+
+enum ConsentStatus {
+  ACTIVE
+  EXPIRED
+  REVOKED
+}
+
+enum InteractionSeverity {
+  CONTRAINDICATED
+  MAJOR
+  MODERATE
+  MINOR
+}
+
+enum IncidentSeverity {
+  WARNING
+  ERROR
+  CRITICAL
+}
+
+model User {
+  id           String    @id @default(uuid())
+  role         Role
+  email        String?   @unique
+  phone        String    @unique // E.164
+  passwordHash String
+  abhaId       String? // 14-digit ABHA number, encrypted at app layer
+  abhaAddress  String?   @unique // ABHA address handle (e.g. ramesh@abdm), used for lookup
+  abhaLinkedAt DateTime? // when the ABHA was verified & linked via ABDM
+  mciRegNo     String?   @unique // for doctors
+  aadhaarHash  String? // SHA-256, never plaintext
+  kycStatus    KycStatus @default(PENDING)
+  isActive     Boolean   @default(true)
+
+  // 2FA
+  twoFactorSecret  String? // encrypted at app layer
+  twoFactorEnabled Boolean @default(false)
+
+  failedLoginAttempts Int       @default(0)
+  lockedUntil         DateTime?
+
+  doctor  Doctor?
+  patient Patient?
+
+  prescriptionsAsDoctor  Prescription[] @relation("DoctorPrescriptions")
+  prescriptionsAsPatient Prescription[] @relation("PatientPrescriptions")
+  uploadedReports        MedicalReport[] @relation("ReportUploader")
+  reportsAsPatient       MedicalReport[] @relation("PatientReports")
+  consentsAsPatient      ConsentArtefact[] @relation("ConsentGrantor")
+  auditLogs              AuditLog[]
+  refreshTokens          RefreshToken[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([role])
+  @@map("users")
+}
+
+model Doctor {
+  id               String  @id @default(uuid())
+  userId           String  @unique
+  user             User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fullName         String
+  specialisation   String?
+  qualification    String?
+  clinicName       String?
+  clinicAddress    String?
+  gstin            String?
+  digitalSigCertId String? // eMudhra/Sify DSC reference
+  consultationFee  Int? // in paise
+
+  @@map("doctors")
+}
+
+model Patient {
+  id                String  @id @default(uuid())
+  userId            String  @unique
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fullName          String
+  dob               DateTime?
+  gender            String?
+  bloodGroup        String?
+  allergies         Json    @default("[]")
+  emergencyContact  String?
+  preferredLanguage String  @default("en")
+
+  @@map("patients")
+}
+
+model Prescription {
+  id            String             @id @default(uuid())
+  doctorId      String
+  doctor        User               @relation("DoctorPrescriptions", fields: [doctorId], references: [id])
+  patientId     String
+  patient       User               @relation("PatientPrescriptions", fields: [patientId], references: [id])
+  patientName   String
+  visitDate     DateTime           @default(now())
+  chiefComplaint String?
+  diagnosisIcd10 String?
+  diagnosisText  String?
+  vitals        Json?
+  notes         String?
+  followUpDate  DateTime?
+  status        PrescriptionStatus @default(DRAFT)
+
+  signatureHash String? // SHA-256 integrity digest over the canonical prescription
+  signatureValue String? // base64 DSC signature over the digest (RSA-2048, IT Act §3)
+  signatureAlg  String? // e.g. "RSA-SHA256"
+  signingCertSerial String? // DSC certificate serial used to sign (CCA/eMudhra ref)
+  signedAt      DateTime?
+  pdfS3Key      String?
+
+  medications  Medication[]
+  interactions InteractionFlag[]
+
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  modifiedBy String?
+
+  @@index([doctorId])
+  @@index([patientId])
+  @@map("prescriptions")
+}
+
+model Medication {
+  id             String       @id @default(uuid())
+  prescriptionId String
+  prescription   Prescription @relation(fields: [prescriptionId], references: [id], onDelete: Cascade)
+  drugName       String
+  drugSchedule   DrugSchedule
+  dosage         String
+  unit           String
+  frequency      String // BD / TDS / QID etc.
+  duration       String
+  route          String?
+  instructions   String?
+  prn            Boolean      @default(false)
+
+  @@index([prescriptionId])
+  @@map("medications")
+}
+
+model InteractionFlag {
+  id             String              @id @default(uuid())
+  prescriptionId String
+  prescription   Prescription        @relation(fields: [prescriptionId], references: [id], onDelete: Cascade)
+  drugA          String
+  drugB          String
+  severity       InteractionSeverity
+  description    String
+  overridden     Boolean             @default(false)
+  justification  String? // required for CONTRAINDICATED overrides
+
+  @@index([prescriptionId])
+  @@map("interaction_flags")
+}
+
+model MedicalReport {
+  id              String     @id @default(uuid())
+  patientId       String
+  patient         User       @relation("PatientReports", fields: [patientId], references: [id])
+  uploadedById    String
+  uploadedBy      User       @relation("ReportUploader", fields: [uploadedById], references: [id])
+  reportType      ReportType
+  title           String?
+  s3Key           String // storage key (local encrypted file in dev; S3 object key in prod)
+  originalFilename String?
+  mimeType        String?
+  sizeBytes       Int?
+  ocrText         String?
+  structuredData  Json?
+  ocrStatus       String     @default("PENDING") // PENDING | DONE | FAILED (async OCR pipeline)
+  isVerified      Boolean    @default(false)
+  createdAt       DateTime   @default(now())
+
+  @@index([patientId])
+  @@map("medical_reports")
+}
+
+model ConsentArtefact {
+  id          String        @id @default(uuid())
+  patientId   String
+  patient     User          @relation("ConsentGrantor", fields: [patientId], references: [id])
+  granteeId   String
+  granteeType Role
+  purpose     String
+  dataTypes   Json          @default("[]") // categories granted, e.g. ["LAB","RADIOLOGY"]
+  reportIds   Json          @default("[]") // specific MedicalReport IDs shared
+  grantedAt   DateTime      @default(now())
+  expiresAt   DateTime
+  revokedAt   DateTime?
+  status      ConsentStatus @default(ACTIVE)
+
+  accessGrants AccessGrant[]
+
+  @@index([patientId])
+  @@index([granteeId])
+  @@map("consent_artefacts")
+}
+
+model AccessGrant {
+  id            String          @id @default(uuid())
+  consentId     String
+  consent       ConsentArtefact @relation(fields: [consentId], references: [id], onDelete: Cascade)
+  tempAccessToken String        @unique
+  issuedAt      DateTime        @default(now())
+  expiresAt     DateTime
+  usedAt        DateTime?
+  ipAddress     String?
+
+  @@map("access_grants")
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  entityType  String
+  entityId    String?
+  action      String
+  performedById String?
+  performedBy User?    @relation(fields: [performedById], references: [id])
+  timestamp   DateTime @default(now())
+  ipAddress   String?
+  metadata    Json?
+
+  @@index([entityType, entityId])
+  @@index([performedById])
+  @@map("audit_logs")
+}
+
+// Operational incident sink — Section 5.1 observability. Anything that fails on the server
+// (a 5xx, a worker crash, a degraded dependency) is recorded here so problems are reported
+// somewhere visible to SUPER_ADMIN instead of vanishing into stdout. Deliberately FK-free:
+// an incident must always persist even if the acting user/row no longer exists, and writing
+// it must never throw into the primary request flow (see reportIncident()).
+model Incident {
+  id           String           @id @default(uuid())
+  requestId    String? // matches the response-envelope request_id the caller can quote to support
+  severity     IncidentSeverity @default(ERROR)
+  source       String // logical origin, e.g. "api:prescriptions:create" or "worker:ocr"
+  errorCode    String? // the envelope error_code returned to the caller, when applicable
+  httpStatus   Int? // HTTP status returned to the caller, when applicable
+  message      String // human-readable summary
+  detail       String? // stack trace / extended diagnostics (server-side only, never surfaced to callers)
+  method       String? // HTTP method of the failing request
+  path         String? // request path of the failing request
+  userId       String? // acting user id, when known (no FK — see note above)
+  ipAddress    String?
+  metadata     Json?
+  resolved     Boolean          @default(false)
+  resolvedAt   DateTime?
+  resolvedById String? // admin who marked it resolved (no FK)
+  createdAt    DateTime         @default(now())
+
+  @@index([createdAt])
+  @@index([requestId])
+  @@index([resolved])
+  @@map("incidents")
+}
+
+model Lab {
+  id            String  @id @default(uuid())
+  name          String
+  regNo         String?
+  address       String?
+  services      Json    @default("[]")
+  contactPerson String?
+  isAbdmLinked  Boolean @default(false)
+
+  @@map("labs")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+// CDSCO-style reference drug list for schedule validation + autocomplete.
+model Drug {
+  id          String       @id @default(uuid())
+  name        String       @unique
+  genericName String?
+  schedule    DrugSchedule
+  form        String? // tablet, syrup, injection
+  strength    String?
+
+  @@index([name])
+  @@map("drugs")
+}
+
+// Curated drug-drug interaction pairs (RxNorm/DrugBank stand-in for Phase 1).
+model DrugInteraction {
+  id          String              @id @default(uuid())
+  drugA       String
+  drugB       String
+  severity    InteractionSeverity
+  description String
+
+  @@unique([drugA, drugB])
+  @@map("drug_interactions")
+}
