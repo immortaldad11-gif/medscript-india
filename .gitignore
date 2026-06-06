@@ -10,3 +10,6 @@ npm-debug.log*
 /coverage
 next-env.d.ts
 *.tsbuildinfo
+
+# Local Claude Code settings (personal, not shared)
+.claude/settings.local.json
