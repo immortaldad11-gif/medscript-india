@@ -143,12 +143,15 @@ function extractContext(transcript: string): { chiefComplaint?: string; diagnosi
   return out;
 }
 
-// Split the transcript into medication clauses. We split on "and"/commas/semicolons/
-// periods and on medication verbs so each clause holds at most one drug order.
+// Split the transcript into medication clauses. We split on commas, semicolons,
+// periods, the word "and", and medication verbs so each clause holds at most one drug
+// order. Splitting on a plain comma matters: dictation usually separates drugs with a
+// comma ("Azithromycin 500 mg OD for 3 days, Pantoprazole 40 mg OD for 5 days"), and
+// without it two drugs collapse into one clause and the second drug is lost.
 function splitMedicationSegments(transcript: string): string[] {
   return transcript
     .replace(/\b(start|give|prescribe|add)\b/gi, "\n$1")
-    .split(/[\n.;]|,\s*and\b|\band\b/i)
+    .split(/[\n.;,]|\band\b/i)
     .map((s) => s.trim())
     .filter((s) => s.length > 2);
 }

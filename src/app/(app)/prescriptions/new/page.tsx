@@ -63,6 +63,23 @@ interface SpeechRecognitionLike {
 
 const FREQUENCIES = ["OD", "BD", "TDS", "QID", "HS", "SOS", "STAT"];
 const UNITS = ["mg", "ml", "tab", "cap", "drops", "puff"];
+// Duration presets for the Rx form. Stored as free-text strings (e.g. "5 days") so
+// they stay compatible with what the voice parser emits and what the API expects.
+const DURATIONS = [
+  "1 day",
+  "2 days",
+  "3 days",
+  "5 days",
+  "7 days",
+  "10 days",
+  "14 days",
+  "15 days",
+  "21 days",
+  "30 days",
+  "2 months",
+  "3 months",
+  "Continuous",
+];
 
 const SEVERITY_STYLES: Record<string, string> = {
   CONTRAINDICATED: "border-red-300 bg-red-50 text-red-800",
@@ -501,9 +518,17 @@ function MedicationRow({
             {FREQUENCIES.map((f) => <option key={f}>{f}</option>)}
           </select>
         </div>
-        <div className="w-28">
+        <div className="w-32">
           <label className="label">Duration</label>
-          <input className="input" value={row.duration} onChange={(e) => onChange({ duration: e.target.value })} />
+          <select className="input" value={row.duration} onChange={(e) => onChange({ duration: e.target.value })}>
+            {/* Keep any value the voice parser produced that isn't a preset (e.g. "1 weeks"). */}
+            {row.duration && !DURATIONS.includes(row.duration) && <option value={row.duration}>{row.duration}</option>}
+            {DURATIONS.map((dur) => (
+              <option key={dur} value={dur}>
+                {dur}
+              </option>
+            ))}
+          </select>
         </div>
         {canRemove && (
           <button type="button" onClick={onRemove} className="mt-7 text-slate-400 hover:text-red-500" aria-label="Remove">✕</button>

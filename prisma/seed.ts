@@ -1,41 +1,8 @@
-import { PrismaClient, Role, DrugSchedule, InteractionSeverity, KycStatus } from "@prisma/client";
+import { PrismaClient, Role, KycStatus } from "@prisma/client";
 import bcrypt from "bcryptjs";
+import { DRUGS, INTERACTIONS } from "./formulary";
 
 const prisma = new PrismaClient();
-
-// Small CDSCO-style reference set for Phase 1. Real deployment imports the full
-// CDSCO approved drug list + RxNorm/DrugBank interaction data.
-const DRUGS: Array<{ name: string; generic?: string; schedule: DrugSchedule; form?: string; strength?: string }> = [
-  { name: "Amoxicillin", generic: "Amoxicillin", schedule: "H", form: "capsule", strength: "500mg" },
-  { name: "Azithromycin", generic: "Azithromycin", schedule: "H", form: "tablet", strength: "500mg" },
-  { name: "Ciprofloxacin", generic: "Ciprofloxacin", schedule: "H", form: "tablet", strength: "500mg" },
-  { name: "Metformin", generic: "Metformin", schedule: "H", form: "tablet", strength: "500mg" },
-  { name: "Atorvastatin", generic: "Atorvastatin", schedule: "H", form: "tablet", strength: "10mg" },
-  { name: "Amlodipine", generic: "Amlodipine", schedule: "H", form: "tablet", strength: "5mg" },
-  { name: "Warfarin", generic: "Warfarin", schedule: "H", form: "tablet", strength: "5mg" },
-  { name: "Clopidogrel", generic: "Clopidogrel", schedule: "H", form: "tablet", strength: "75mg" },
-  { name: "Tramadol", generic: "Tramadol", schedule: "H1", form: "tablet", strength: "50mg" },
-  { name: "Alprazolam", generic: "Alprazolam", schedule: "H1", form: "tablet", strength: "0.5mg" },
-  { name: "Codeine", generic: "Codeine", schedule: "H1", form: "syrup", strength: "10mg/5ml" },
-  { name: "Morphine", generic: "Morphine", schedule: "X", form: "injection", strength: "10mg/ml" },
-  { name: "Methylphenidate", generic: "Methylphenidate", schedule: "X", form: "tablet", strength: "10mg" },
-  { name: "Paracetamol", generic: "Paracetamol", schedule: "OTC", form: "tablet", strength: "500mg" },
-  { name: "Ibuprofen", generic: "Ibuprofen", schedule: "OTC", form: "tablet", strength: "400mg" },
-  { name: "Cetirizine", generic: "Cetirizine", schedule: "OTC", form: "tablet", strength: "10mg" },
-  { name: "Omeprazole", generic: "Omeprazole", schedule: "OTC", form: "capsule", strength: "20mg" },
-  { name: "Aspirin", generic: "Aspirin", schedule: "OTC", form: "tablet", strength: "75mg" },
-];
-
-// Interaction pairs stored alphabetically (drugA < drugB) for deterministic lookup.
-const INTERACTIONS: Array<{ a: string; b: string; severity: InteractionSeverity; description: string }> = [
-  { a: "Clopidogrel", b: "Warfarin", severity: "CONTRAINDICATED", description: "Combined use markedly increases bleeding risk; concurrent use is generally contraindicated without specialist oversight." },
-  { a: "Aspirin", b: "Warfarin", severity: "MAJOR", description: "Additive anticoagulant/antiplatelet effect raises risk of serious GI and intracranial bleeding." },
-  { a: "Ciprofloxacin", b: "Warfarin", severity: "MAJOR", description: "Ciprofloxacin can potentiate warfarin, increasing INR and bleeding risk; monitor INR closely." },
-  { a: "Alprazolam", b: "Tramadol", severity: "MAJOR", description: "CNS and respiratory depression risk when combining benzodiazepines with opioids." },
-  { a: "Codeine", b: "Tramadol", severity: "MAJOR", description: "Additive opioid effect increases sedation and respiratory depression risk." },
-  { a: "Atorvastatin", b: "Azithromycin", severity: "MODERATE", description: "Possible increased statin exposure; monitor for myopathy symptoms." },
-  { a: "Amlodipine", b: "Atorvastatin", severity: "MINOR", description: "Amlodipine can modestly raise atorvastatin levels; clinically minor for standard doses." },
-];
 
 function norm(a: string, b: string) {
   return a.toLowerCase() < b.toLowerCase() ? [a, b] : [b, a];

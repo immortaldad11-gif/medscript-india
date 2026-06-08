@@ -15,9 +15,16 @@ export async function GET(req: NextRequest) {
   const q = req.nextUrl.searchParams.get("q")?.trim() ?? "";
   if (q.length < 1) return ok([]);
 
+  // Match either the brand/display name or the generic molecule, so a doctor can
+  // find a drug by either (Section 4.1.1).
   const drugs = await prisma.drug.findMany({
-    where: { name: { contains: q, mode: "insensitive" } },
-    take: 10,
+    where: {
+      OR: [
+        { name: { contains: q, mode: "insensitive" } },
+        { genericName: { contains: q, mode: "insensitive" } },
+      ],
+    },
+    take: 25,
     orderBy: { name: "asc" },
   });
   return ok(drugs);

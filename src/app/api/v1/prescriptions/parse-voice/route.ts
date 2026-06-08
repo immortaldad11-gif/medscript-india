@@ -24,8 +24,12 @@ export async function POST(req: NextRequest) {
   if (!parsed.success) return fail("Validation failed", 422, "VALIDATION_ERROR", parsed.error.flatten());
 
   // Reference drug names power high-confidence matching against the dictation.
-  const drugs = await prisma.drug.findMany({ select: { name: true }, take: 5000 });
-  const knownDrugs = drugs.map((d) => d.name);
+  // Include both the display name and the generic molecule so the doctor can dictate
+  // either ("start amoxclav" / "start amoxicillin and clavulanic acid").
+  const drugs = await prisma.drug.findMany({ select: { name: true, genericName: true }, take: 5000 });
+  const knownDrugs = Array.from(
+    new Set(drugs.flatMap((d) => [d.name, d.genericName].filter((n): n is string => !!n))),
+  );
 
   const result = parseVoicePrescription(parsed.data.transcript, knownDrugs);
 
