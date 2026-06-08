@@ -4,6 +4,7 @@ import { AuthError, requireAuth } from "@/lib/auth";
 import { abhaInitSchema } from "@/lib/validation";
 import { validateAbhaIdentifier, initAbhaOtp, signAbhaTxn } from "@/lib/abdm";
 import { audit, clientIp } from "@/lib/audit";
+import { enforceRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 
 // POST /api/v1/abha/link/init — Step 1 of ABHA linking (Section 2.2).
 // Validates the ABHA number/address and "sends" an OTP to the linked mobile via the
@@ -16,6 +17,10 @@ export async function POST(req: NextRequest) {
     if (err instanceof AuthError) return fail(err.message, err.status, err.code);
     throw err;
   }
+
+  // Per-user throttle (Section 3.2) — prevents OTP bombing of a patient's linked mobile.
+  const limited = await enforceRateLimit(RATE_LIMITS.otp, session.sub);
+  if (limited) return limited;
 
   const body = await req.json().catch(() => null);
   const parsed = abhaInitSchema.safeParse(body);

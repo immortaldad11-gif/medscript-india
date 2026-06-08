@@ -6,10 +6,15 @@ import { registerSchema } from "@/lib/validation";
 import { verifyMciRegistration } from "@/lib/mci";
 import { encryptField } from "@/lib/crypto";
 import { audit, clientIp } from "@/lib/audit";
+import { enforceRateLimit, ipIdentifier, RATE_LIMITS } from "@/lib/rate-limit";
 import { Prisma, KycStatus } from "@prisma/client";
 
 // POST /api/v1/auth/register — doctor (with MCI verification) or patient registration.
 export async function POST(req: NextRequest) {
+  // Per-IP throttle (Section 3.2) — limits mass / automated account creation.
+  const limited = await enforceRateLimit(RATE_LIMITS.register, ipIdentifier(req));
+  if (limited) return limited;
+
   let body: unknown;
   try {
     body = await req.json();

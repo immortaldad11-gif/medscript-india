@@ -7,6 +7,7 @@ import { startSession } from "@/lib/session";
 import { decryptField } from "@/lib/crypto";
 import { verifyToken } from "@/lib/twofa";
 import { audit, clientIp } from "@/lib/audit";
+import { enforceRateLimit, ipIdentifier, RATE_LIMITS } from "@/lib/rate-limit";
 
 const MAX_ATTEMPTS = 5;
 const LOCK_MINUTES = 15;
@@ -14,6 +15,11 @@ const ROLES_REQUIRING_2FA = ["DOCTOR", "SUPER_ADMIN"];
 
 // POST /api/v1/auth/login — password + optional TOTP. Account lockout after 5 fails.
 export async function POST(req: NextRequest) {
+  // Per-IP throttle (Section 3.2) — coarse credential-stuffing / DoS guard that
+  // complements the per-account lockout below. Runs before any bcrypt work.
+  const limited = await enforceRateLimit(RATE_LIMITS.login, ipIdentifier(req));
+  if (limited) return limited;
+
   let body: unknown;
   try {
     body = await req.json();
