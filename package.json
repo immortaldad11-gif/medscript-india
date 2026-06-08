@@ -9,7 +9,7 @@
     "start": "next start",
     "worker": "tsx --env-file=.env src/worker.ts",
     "storage:migrate": "tsx --env-file=.env scripts/migrate-storage-to-s3.ts",
-    "test": "node --import tsx --env-file=.env --test tests/*.test.ts",
+    "test": "node --import tsx --env-file-if-exists=.env --test tests/*.test.ts",
     "lint": "next lint",
     "db:up": "docker compose up -d",
     "db:down": "docker compose down",

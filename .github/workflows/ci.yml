@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-test:
+    name: typecheck · lint · test
+    runs-on: ubuntu-latest
+
+    # The integration tests talk to real Postgres + Redis (the same versions as
+    # docker-compose.yml). They skip gracefully if unreachable, but CI provides them.
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: medscript
+          POSTGRES_PASSWORD: medscript_dev
+          POSTGRES_DB: medscript
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U medscript"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://medscript:medscript_dev@localhost:5432/medscript?schema=public
+      REDIS_URL: redis://localhost:6379
+      # CI-only throwaway secrets — never used outside CI.
+      JWT_ACCESS_SECRET: ci-access-secret
+      JWT_REFRESH_SECRET: ci-refresh-secret
+      JWT_ACCESS_TTL: 15m
+      JWT_REFRESH_TTL: 7d
+      # Must base64-decode to exactly 32 bytes (AES-256-GCM).
+      FIELD_ENCRYPTION_KEY: Y2lfdGVzdF9maWVsZF9lbmNyeXB0aW9uX2tleV8zMmI=
+      NEXT_PUBLIC_BASE_URL: http://localhost:3000
+      NOTIFICATIONS_DRIVER: log
+      QUEUE_ENABLED: "0"
+      STORAGE_DRIVER: local
+      TWOFA_ISSUER: MedScript India CI
+      ABHA_DEV_OTP: "123456"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Apply schema to the test database
+        run: npx prisma db push --skip-generate
+
+      - name: Seed reference + demo data
+        run: npm run prisma:seed
+
+      - name: Type-check
+        run: npx tsc --noEmit
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
