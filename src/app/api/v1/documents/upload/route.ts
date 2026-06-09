@@ -11,6 +11,23 @@ import type { ReportType } from "@prisma/client";
 const MAX_BYTES = 15 * 1024 * 1024; // 15 MB
 const REPORT_TYPES: ReportType[] = ["LAB", "RADIOLOGY", "PRESCRIPTION"];
 
+// Allow-list of upload content types. Deliberately excludes active types (text/html,
+// image/svg+xml, xhtml, etc.): a document is later served back with its stored mime
+// type, so permitting an active type would let an uploaded file execute script in the
+// app origin when a clinician opens it — stored XSS. Only inert document/image types
+// are accepted. (file.type is client-declared, but since we serve back exactly this
+// allow-listed type with nosniff, malicious bytes under a benign type stay inert.)
+const ALLOWED_MIME = new Set([
+  "application/pdf",
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+  "image/gif",
+  "image/tiff",
+  "application/dicom",
+  "text/plain",
+]);
+
 // POST /api/v1/documents/upload (multipart) — Section 4.3.1.
 // Patients upload their own documents; labs/radiologists upload for a patient
 // (resolved by patientId). File is OCR-structured then stored encrypted-at-rest in
@@ -34,6 +51,14 @@ export async function POST(req: NextRequest) {
   const file = form.get("file");
   if (!(file instanceof File)) return fail("Missing file", 422, "NO_FILE");
   if (file.size > MAX_BYTES) return fail("File exceeds 15 MB limit", 413, "TOO_LARGE");
+  const mime = (file.type || "").toLowerCase();
+  if (!ALLOWED_MIME.has(mime)) {
+    return fail(
+      `Unsupported file type "${file.type || "unknown"}". Allowed: PDF, PNG, JPEG, WEBP, GIF, TIFF, DICOM, TXT.`,
+      415,
+      "UNSUPPORTED_TYPE",
+    );
+  }
 
   const reportTypeRaw = String(form.get("reportType") ?? "LAB").toUpperCase();
   const reportType = (REPORT_TYPES.includes(reportTypeRaw as ReportType) ? reportTypeRaw : "LAB") as ReportType;

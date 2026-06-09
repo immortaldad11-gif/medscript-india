@@ -64,14 +64,22 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     return failWithIncident({ req, source: "api:documents:download", message: "Failed to read document", error: err, metadata: { reportId: report.id } });
   }
 
-  const filename = report.originalFilename || `${report.title || "document"}`;
+  // Strip quotes AND CRLF from the filename so it can't break out of the header.
+  const filename = (report.originalFilename || report.title || "document").replace(/[\r\n"]/g, "");
+  // Preview only inert types inline; force everything else to download. With the upload
+  // allow-list + nosniff this stops a stored document from executing script in the app
+  // origin (stored XSS) when a clinician opens it.
+  const mime = (report.mimeType || "application/octet-stream").toLowerCase();
+  const inlineSafe = new Set(["application/pdf", "image/png", "image/jpeg", "image/webp", "image/gif", "image/tiff"]);
+  const disposition = inlineSafe.has(mime) ? "inline" : "attachment";
   return new Response(new Uint8Array(bytes), {
     status: 200,
     headers: {
       "Content-Type": report.mimeType || "application/octet-stream",
-      "Content-Disposition": `inline; filename="${filename.replace(/"/g, "")}"`,
+      "Content-Disposition": `${disposition}; filename="${filename}"`,
       "Content-Length": String(bytes.length),
       "Cache-Control": "private, no-store",
+      "X-Content-Type-Options": "nosniff",
     },
   });
 }

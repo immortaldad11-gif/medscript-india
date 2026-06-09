@@ -3,6 +3,7 @@ import path from "path";
 import crypto from "crypto";
 import type { S3Client, ServerSideEncryption } from "@aws-sdk/client-s3";
 import { encryptField, decryptField } from "@/lib/crypto";
+import { getAccessSecret } from "@/lib/jwt";
 
 // Document storage — Section 4.3 Privacy Design Principle.
 // Two interchangeable backends selected by STORAGE_DRIVER:
@@ -16,7 +17,6 @@ import { encryptField, decryptField } from "@/lib/crypto";
 // API so access control, decryption, and audit stay server-side).
 
 const ROOT = path.join(process.cwd(), "storage");
-const URL_SECRET = process.env.JWT_ACCESS_SECRET ?? "dev-access-secret-change-me";
 
 // A backend persists/retrieves an opaque ciphertext blob keyed by a logical storage key
 // ("<patientId>/<reportId>"). App-layer encryption lives in the wrappers below so every
@@ -194,7 +194,7 @@ export async function deleteObject(storageKey: string): Promise<void> {
 
 export function signDownloadUrl(reportId: string, ttlSeconds = 15 * 60): string {
   const exp = Date.now() + ttlSeconds * 1000;
-  const sig = crypto.createHmac("sha256", URL_SECRET).update(`${reportId}.${exp}`).digest("hex");
+  const sig = crypto.createHmac("sha256", getAccessSecret()).update(`${reportId}.${exp}`).digest("hex");
   return `/api/v1/documents/${reportId}/download?exp=${exp}&sig=${sig}`;
 }
 
@@ -202,7 +202,7 @@ export function verifyDownloadSignature(reportId: string, exp: string | null, si
   if (!exp || !sig) return false;
   const expNum = Number(exp);
   if (!Number.isFinite(expNum) || expNum < Date.now()) return false;
-  const expected = crypto.createHmac("sha256", URL_SECRET).update(`${reportId}.${expNum}`).digest("hex");
+  const expected = crypto.createHmac("sha256", getAccessSecret()).update(`${reportId}.${expNum}`).digest("hex");
   // Constant-time comparison.
   const a = Buffer.from(sig);
   const b = Buffer.from(expected);
