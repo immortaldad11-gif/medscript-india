@@ -14,6 +14,13 @@ export async function POST(req: NextRequest) {
   const user = await prisma.user.findUnique({ where: { id: session.sub } });
   if (!user) return fail("User not found", 404, "NOT_FOUND");
 
+  // Refuse to regenerate the secret while 2FA is already enabled — otherwise a live
+  // session could silently rotate the second factor (a takeover vector). To re-enrol,
+  // disable first via /2fa/disable (which requires the current TOTP).
+  if (user.twoFactorEnabled) {
+    return fail("Two-factor authentication is already enabled. Disable it first to re-enrol.", 409, "2FA_ALREADY_ENABLED");
+  }
+
   const secret = generateSecret();
   await prisma.user.update({ where: { id: user.id }, data: { twoFactorSecret: encryptField(secret) } });
 

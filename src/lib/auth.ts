@@ -36,13 +36,23 @@ export function getSession(req?: NextRequest): AccessTokenPayload | null {
   }
 }
 
+// Roles for which TOTP 2FA is mandatory (Section 2.2.1). Enforced server-side (here),
+// not just via the client-side redirect to /setup-2fa.
+export const ROLES_REQUIRING_2FA: Role[] = ["DOCTOR", "SUPER_ADMIN"];
+
 // Require an authenticated session, optionally constrained to specific roles.
-// 2FA-enabled accounts must have completed the 2FA step for the session.
+// Privileged roles must additionally have satisfied 2FA for the session.
 export function requireAuth(req?: NextRequest, roles?: Role[]): AccessTokenPayload {
   const session = getSession(req);
   if (!session) throw new AuthError("Authentication required");
   if (roles && roles.length > 0 && !roles.includes(session.role)) {
     throw new AuthError("Insufficient permissions for this action", 403, "FORBIDDEN");
+  }
+  // Mandatory 2FA for privileged roles. The enrolment endpoints (me, 2fa/setup,
+  // 2fa/enable) use getSession — not requireAuth — so an un-enrolled doctor/admin can
+  // still reach the setup flow; only protected feature endpoints are gated here.
+  if (ROLES_REQUIRING_2FA.includes(session.role) && !session.twoFactor) {
+    throw new AuthError("Two-factor authentication enrolment is required", 403, "2FA_REQUIRED");
   }
   return session;
 }

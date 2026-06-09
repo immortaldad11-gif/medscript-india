@@ -8,10 +8,10 @@ import { decryptField } from "@/lib/crypto";
 import { verifyToken } from "@/lib/twofa";
 import { audit, clientIp } from "@/lib/audit";
 import { enforceRateLimit, ipIdentifier, RATE_LIMITS } from "@/lib/rate-limit";
+import { ROLES_REQUIRING_2FA } from "@/lib/auth";
 
 const MAX_ATTEMPTS = 5;
 const LOCK_MINUTES = 15;
-const ROLES_REQUIRING_2FA = ["DOCTOR", "SUPER_ADMIN"];
 
 // POST /api/v1/auth/login — password + optional TOTP. Account lockout after 5 fails.
 export async function POST(req: NextRequest) {

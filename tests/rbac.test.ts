@@ -82,3 +82,19 @@ test("requireAuth throws 401 UNAUTHORIZED for a missing or invalid token", () =>
   assert.ok(bad instanceof AuthError);
   assert.equal((bad as AuthError).status, 401);
 });
+
+test("requireAuth gates a privileged role that has not satisfied 2FA (2FA_REQUIRED)", () => {
+  // A doctor whose session is not 2FA-satisfied must be blocked from feature endpoints.
+  const token = signAccessToken({ sub: "doc_2", role: "DOCTOR", twoFactor: false });
+  const err = caught(() => requireAuth(bearerReq(token), ["DOCTOR"]));
+  assert.ok(err instanceof AuthError);
+  assert.equal((err as AuthError).status, 403);
+  assert.equal((err as AuthError).code, "2FA_REQUIRED");
+});
+
+test("requireAuth still admits a non-privileged role without 2FA", () => {
+  // PATIENT/LAB/RADIOLOGIST do not require 2FA, so a non-satisfied session is fine.
+  const token = signAccessToken({ sub: "p_3", role: "PATIENT", twoFactor: false });
+  assert.equal(requireAuth(bearerReq(token)).sub, "p_3");
+  assert.equal(requireAuth(bearerReq(token), ["PATIENT"]).role, "PATIENT");
+});
