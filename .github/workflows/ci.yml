@@ -77,5 +77,18 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      # MinIO gives the S3 storage test a real S3 API to run against (it skips if absent).
+      # Run as a step rather than a service container because MinIO needs the `server`
+      # command, which GitHub Actions service containers can't specify. The test defaults
+      # to localhost:9000 / minioadmin, matching this container.
+      - name: Start MinIO (S3-compatible store)
+        run: |
+          docker run -d --name minio -p 9000:9000 \
+            -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
+            minio/minio server /data
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:9000/minio/health/live && break || sleep 1
+          done
+
       - name: Test
         run: npm test

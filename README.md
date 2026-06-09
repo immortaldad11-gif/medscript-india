@@ -91,12 +91,12 @@ Zero-dependency harness: Node's built-in `node:test` run through `tsx`. Each tes
 npm test
 ```
 
-**61 tests** across two tiers:
+**70 tests** across two tiers:
 
-- **Security primitives** — field encryption (AES-256-GCM round-trip + tamper rejection), DSC sign/verify/rotate, RBAC matrix, storage driver + migration invariant, prescription integrity signatures, rate limiting.
+- **Security primitives** — field encryption (AES-256-GCM round-trip + tamper rejection), DSC sign/verify/rotate, RBAC matrix + server-side 2FA gating, auth-secret fail-fast + JWT algorithm pinning, local storage driver + migration invariant, **S3 backend (validated against MinIO)**, prescription integrity signatures, rate limiting.
 - **Business logic** — voice-dictation NLP parser, drug-schedule rules + interaction detection, consent auto-expiry, prescription idempotency.
 
-Tests that need Postgres/Redis **skip gracefully** when those services are down, so the suite still runs without `docker compose up` (a CI workflow that provides both lives in `.github/workflows/ci.yml`).
+Tests that need Postgres / Redis / an S3 endpoint **skip gracefully** when those services are down, so the suite still runs without `docker compose up` (the CI workflow in `.github/workflows/ci.yml` provides all three — Postgres, Redis, and MinIO).
 
 ---
 
