@@ -115,6 +115,26 @@ tests/                 # node:test suites
 .github/workflows/     # CI pipeline
 ```
 
+## Deploying with Docker
+
+The app ships as a multi-stage image (Next.js **standalone**, non-root, health-checked) plus a production Compose stack — web + Postgres + Redis + a one-shot migration step, with persistent volumes.
+
+```bash
+cp .env.example .env     # set REAL secrets: JWT_ACCESS_SECRET, JWT_REFRESH_SECRET,
+                         # FIELD_ENCRYPTION_KEY (32-byte base64), POSTGRES_PASSWORD, ...
+docker compose -f docker-compose.prod.yml up -d --build
+#   → migrations run, then web comes up on http://localhost:3000 (set WEB_PORT to change)
+
+docker compose -f docker-compose.prod.yml logs -f web            # tail logs
+docker compose -f docker-compose.prod.yml run --rm migrate npx prisma db seed   # demo data (optional)
+docker compose -f docker-compose.prod.yml --profile worker up -d # async worker (only if QUEUE_ENABLED=1)
+```
+
+- **Secrets are injected at runtime** (via `.env` / your orchestrator), never baked into the image. In production the app **fails fast** if the `JWT_*` secrets are unset or left at the dev default.
+- **Migrations** use `prisma migrate deploy` (the `migrate` service); the initial migration ships in `prisma/migrations/`. If you previously created the DB with `prisma db push`, baseline it once: `prisma migrate resolve --applied 0_init`.
+- **Persistence** — the `storage` volume holds the local document store **and the DSC signing keyring**; it must survive restarts or previously-signed prescriptions won't verify. For real PHI, prefer `STORAGE_DRIVER=s3` for documents and env-managed DSC keys (`DSC_*_PEM`) so nothing sensitive lives on local disk.
+- The single image deploys to any container host (Railway / Render / Fly.io / ECS / a VPS) with managed Postgres + Redis.
+
 ## Security & compliance notes
 
 - **PHI encryption** (ABHA ID, Aadhaar, 2FA secrets) — AES-256-GCM, `FIELD_ENCRYPTION_KEY` (§2.3.2).
@@ -135,4 +155,4 @@ What's implemented is production-shaped, but these integrations are **determinis
 | Notifications | `NOTIFICATIONS_DRIVER=log` (console) | Gupshup WhatsApp Business API / DLT-registered SMS |
 | MCI/NMC verification | stubbed registration check | real NMC registry lookup |
 
-Also note: there is no deployment/hosting configured here — taking this live additionally requires a managed Postgres + Redis, a remote + the CI pipeline running, and real secrets.
+Deployment itself is now containerised (see [Deploying with Docker](#deploying-with-docker)). What still stands between this and a *live, billable* service is non-code: a hosting target with managed Postgres + Redis, a git remote so CI runs, the **licensed** integrations above (a CA-issued DSC, ABDM registration, a WhatsApp provider), and the regulatory/compliance footing to legally operate a telemedicine prescription service in India.

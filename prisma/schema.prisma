@@ -3,6 +3,9 @@
 
 generator client {
   provider = "prisma-client-js"
+  // "native" for local dev; the Debian/OpenSSL-3 target matches the node:20-slim
+  // production runtime so the query engine is always present in the container.
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
 }
 
 datasource db {

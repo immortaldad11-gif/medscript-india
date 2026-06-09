@@ -1,6 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // Emit a self-contained server bundle (.next/standalone) for slim production images.
+  output: "standalone",
   experimental: {
     // pdfkit ships its own fonts via .afm files; keep it external to the bundle
     serverComponentsExternalPackages: ["pdfkit", "ioredis"],

@@ -1,0 +1,20 @@
+# Keep the build context small and prevent local state / secrets from entering the image.
+.git
+.gitignore
+node_modules
+.next
+out
+storage
+.env
+.env*.local
+*.log
+npm-debug.log*
+.DS_Store
+coverage
+tests
+.github
+.claude
+*.md
+Dockerfile
+.dockerignore
+docker-compose*.yml
