@@ -44,12 +44,22 @@ export const RATE_LIMITS = {
   otp: { name: "auth:otp", limit: 5, windowSec: 300 },
 } satisfies Record<string, RateLimitRule>;
 
+// What to return when Redis is unavailable. Default is fail-OPEN (allow) so dev runs
+// without Redis; set RATE_LIMIT_FAIL_CLOSED=1 in production to fail CLOSED (deny) and
+// preserve brute-force protection during a Redis outage, trading availability for safety.
+export function unavailableResult(rule: RateLimitRule, failClosed: boolean): RateLimitResult {
+  return failClosed
+    ? { allowed: false, remaining: 0, retryAfterSec: rule.windowSec, limit: rule.limit }
+    : { allowed: true, remaining: rule.limit, retryAfterSec: 0, limit: rule.limit };
+}
+
+const failClosed = (): boolean => process.env.RATE_LIMIT_FAIL_CLOSED === "1";
+
 // Fixed-window counter: INCR the key, set the TTL on its first hit. Fixed-window can
 // allow a small burst across a window boundary, which is an acceptable trade for abuse
 // throttling and keeps the implementation to one round-trip in the common case.
 export async function rateLimit(rule: RateLimitRule, identifier: string): Promise<RateLimitResult> {
-  const allowAll: RateLimitResult = { allowed: true, remaining: rule.limit, retryAfterSec: 0, limit: rule.limit };
-  if (!redisAvailable() || !redis) return allowAll; // fail-open when Redis is down (dev)
+  if (!redisAvailable() || !redis) return unavailableResult(rule, failClosed());
 
   const key = `${PREFIX}${rule.name}:${identifier}`;
   try {
@@ -68,8 +78,8 @@ export async function rateLimit(rule: RateLimitRule, identifier: string): Promis
       limit: rule.limit,
     };
   } catch (err) {
-    console.warn("[rate-limit] check failed, allowing request:", (err as Error).message);
-    return allowAll; // fail-open on a transient Redis error
+    console.warn("[rate-limit] check failed:", (err as Error).message);
+    return unavailableResult(rule, failClosed()); // honour the fail-open/closed policy
   }
 }
 

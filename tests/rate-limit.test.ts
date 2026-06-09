@@ -1,6 +1,6 @@
 import test, { before, after } from "node:test";
 import assert from "node:assert/strict";
-import { rateLimit, RATE_LIMITS, type RateLimitRule } from "@/lib/rate-limit";
+import { rateLimit, RATE_LIMITS, unavailableResult, type RateLimitRule } from "@/lib/rate-limit";
 import { redis } from "@/lib/redis";
 
 // Rate limiting — Section 3.2. This suite runs against the real Redis the limiter
@@ -104,4 +104,14 @@ test("counters are isolated per identifier", async (t) => {
       }
     }
   }
+});
+
+test("Redis-unavailable policy: fail-open allows, fail-closed denies (#5)", () => {
+  const open = unavailableResult(RATE_LIMITS.login, false);
+  assert.equal(open.allowed, true, "fail-open must allow when Redis is down");
+
+  const closed = unavailableResult(RATE_LIMITS.login, true);
+  assert.equal(closed.allowed, false, "fail-closed must deny when Redis is down");
+  assert.equal(closed.remaining, 0);
+  assert.ok(closed.retryAfterSec > 0, "denied result carries a Retry-After hint");
 });
