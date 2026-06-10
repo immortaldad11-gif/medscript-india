@@ -1,7 +1,8 @@
 # syntax=docker/dockerfile:1
 # Multi-stage production image for the MedScript India web server (Next.js standalone).
 # node:20-slim (Debian) is used instead of Alpine to avoid Prisma musl/OpenSSL engine
-# pitfalls. Database migrations are run separately (see docker-compose.prod.yml), not here.
+# pitfalls. The container applies pending DB migrations on startup (docker-entrypoint.sh),
+# so single-image deploys (Render/Railway/etc.) come up with the schema in place.
 
 # ---- deps: install all dependencies ----
 FROM node:20-slim AS deps
@@ -37,9 +38,16 @@ RUN apt-get update \
 COPY --from=build --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=build --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=build --chown=nextjs:nodejs /app/public ./public
-# Output tracing can miss the Prisma query engine — copy it (and the client) explicitly.
+# Output tracing can miss the Prisma query engine — copy the generated client (.prisma)
+# and the FULL @prisma scope (client, engines, plus the CLI's helpers: debug,
+# get-platform, fetch-engine, …) and the prisma CLI itself, so both runtime queries and
+# `migrate deploy` work. The schema + migrations are needed by migrate deploy.
 COPY --from=build --chown=nextjs:nodejs /app/node_modules/.prisma ./node_modules/.prisma
-COPY --from=build --chown=nextjs:nodejs /app/node_modules/@prisma/client ./node_modules/@prisma/client
+COPY --from=build --chown=nextjs:nodejs /app/node_modules/@prisma ./node_modules/@prisma
+COPY --from=build --chown=nextjs:nodejs /app/node_modules/prisma ./node_modules/prisma
+COPY --from=build --chown=nextjs:nodejs /app/prisma ./prisma
+COPY --chown=nextjs:nodejs docker-entrypoint.sh ./docker-entrypoint.sh
+RUN chmod +x ./docker-entrypoint.sh
 
 # Writable dir for the local storage driver + the persisted DSC signing keyring.
 # Mount a persistent volume here in production (compose does) so the signing key and
@@ -55,4 +63,5 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD wget -qO- http://127.0.0.1:3000/api/v1/health >/dev/null 2>&1 || exit 1
 
-CMD ["node", "server.js"]
+# Apply pending migrations, then start the standalone server (see docker-entrypoint.sh).
+ENTRYPOINT ["./docker-entrypoint.sh"]

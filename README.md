@@ -131,7 +131,7 @@ docker compose -f docker-compose.prod.yml --profile worker up -d # async worker 
 ```
 
 - **Secrets are injected at runtime** (via `.env` / your orchestrator), never baked into the image. In production the app **fails fast** if the `JWT_*` secrets are unset or left at the dev default.
-- **Migrations** use `prisma migrate deploy` (the `migrate` service); the initial migration ships in `prisma/migrations/`. If you previously created the DB with `prisma db push`, baseline it once: `prisma migrate resolve --applied 0_init`.
+- **Migrations** — the image **auto-applies `prisma migrate deploy` on startup** (see `docker-entrypoint.sh`), so a single-image deploy (Render / Railway / Fly) comes up with the schema in place; the Compose stack also runs a one-shot `migrate` service. The initial migration ships in `prisma/migrations/`. (If you previously created a DB with `prisma db push`, baseline it once: `prisma migrate resolve --applied 0_init`.)
 - **Persistence** — the `storage` volume holds the local document store **and the DSC signing keyring**; it must survive restarts or previously-signed prescriptions won't verify. For real PHI, prefer `STORAGE_DRIVER=s3` for documents and env-managed DSC keys (`DSC_*_PEM`) so nothing sensitive lives on local disk.
 - The single image deploys to any container host (Railway / Render / Fly.io / ECS / a VPS) with managed Postgres + Redis.
 
